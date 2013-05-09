@@ -107,7 +107,6 @@ class CronExpression(object):
 
         self.string_tab = map(str.upper, [seconds, minutes, hours, dom, months, dow])
         self.compute_numtab()
-        print self.numerical_tab
         
         if len(epoch) == 6:
             y, mo, d, h, m, s = epoch
@@ -193,8 +192,6 @@ class CronExpression(object):
                 mod_delta_day),
             FIELD_RANGES)
         
-        #print quintuple
-                
         for value, valid_values, field_str, delta_t, field_type in quintuple:
             # All valid, static values for the fields are stored in sets
             if value in valid_values:
