@@ -52,24 +52,25 @@ if isinstance(map, type):
     xrange = range
 
 DAY_NAMES = zip(('sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'), xrange(7))
+SECONDS = (0, 59)
 MINUTES = (0, 59)
 HOURS = (0, 23)
 DAYS_OF_MONTH = (1, 31)
 MONTHS = (1, 12)
 DAYS_OF_WEEK = (0, 6)
 L_FIELDS = (DAYS_OF_WEEK, DAYS_OF_MONTH)
-FIELD_RANGES = (MINUTES, HOURS, DAYS_OF_MONTH, MONTHS, DAYS_OF_WEEK)
+FIELD_RANGES = (SECONDS, MINUTES, HOURS, DAYS_OF_MONTH, MONTHS, DAYS_OF_WEEK)
 MONTH_NAMES = zip(('jan', 'feb', 'mar', 'apr', 'may', 'jun',
                    'jul', 'aug', 'sep', 'oct', 'nov', 'dec'), xrange(1, 13))
 DEFAULT_EPOCH = (1970, 1, 1, 0, 0, 0)
 SUBSTITUTIONS = {
-    "@yearly": "0 0 1 1 *",
-    "@annually": "0 0 1 1 *",
-    "@monthly": "0 0 1 * *",
-    "@weekly": "0 0 * * 0",
-    "@daily": "0 0 * * *",
-    "@midnight": "0 0 * * *",
-    "@hourly": "0 * * * *"
+    "@yearly": "0 0 0 1 1 *",
+    "@annually": "0 0 0 1 1 *",
+    "@monthly": "0 0 0 1 * *",
+    "@weekly": "0 0 0 * * 0",
+    "@daily": "0 0 0 * * *",
+    "@midnight": "0 0 0 * * *",
+    "@hourly": "0 0 * * * *"
 }
 VALIDATE_POUND = re.compile("^[0-6]#[1-5]")
 VALIDATE_L_IN_DOW = re.compile("^[0-6]L$")
@@ -89,11 +90,11 @@ class CronExpression(object):
                 line = line.replace(key, value)
                 break
 
-        fields = line.split(None, 5)
-        if len(fields) == 5:
+        fields = line.split(None, 6)
+        if len(fields) == 6:
             fields.append('')
 
-        minutes, hours, dom, months, dow, self.comment = fields
+        seconds, minutes, hours, dom, months, dow, self.comment = fields
 
         dow = dow.replace('7', '0').replace('?', '*')
         dom = dom.replace('?', '*')
@@ -104,11 +105,13 @@ class CronExpression(object):
         for dowstr, downum in DAY_NAMES:
             dow = dow.lower().replace(dowstr, str(downum))
 
-        self.string_tab = map(str.upper, [minutes, hours, dom, months, dow])
+        self.string_tab = map(str.upper, [seconds, minutes, hours, dom, months, dow])
         self.compute_numtab()
-        if len(epoch) == 5:
-            y, mo, d, h, m = epoch
-            self.epoch = (y, mo, d, h, m, epoch_utc_offset)
+        print self.numerical_tab
+        
+        if len(epoch) == 6:
+            y, mo, d, h, m, s = epoch
+            self.epoch = (y, mo, d, h, m, s, epoch_utc_offset)
         else:
             self.epoch = epoch
 
@@ -149,10 +152,10 @@ class CronExpression(object):
 
             self.numerical_tab.append(unified)
 
-        if self.string_tab[2] == "*" and self.string_tab[4] != "*":
-            self.numerical_tab[2] = set()
-        elif self.string_tab[4] == "*" and self.string_tab[2] != "*":
-            self.numerical_tab[4] = set()
+        if self.string_tab[3] == "*" and self.string_tab[5] != "*":
+            self.numerical_tab[3] = set()
+        elif self.string_tab[5] == "*" and self.string_tab[3] != "*":
+            self.numerical_tab[5] = set()
 
     def check_trigger(self, date_tuple, utc_offset=0):
         """
@@ -162,7 +165,7 @@ class CronExpression(object):
         used, specifically in the hour and minutes fields, it is crucial that
         the utc_offset is specified.
         """
-        year, month, day, hour, mins = date_tuple
+        year, month, day, hour, mins, sec = date_tuple
         given_date = datetime.date(year, month, day)
         zeroday = datetime.date(*self.epoch[:3])
         last_dom = calendar.monthrange(year, month)[-1]
@@ -173,27 +176,30 @@ class CronExpression(object):
         first_dow = (given_dow + 1 - day) % 7
 
         # Figure out how much time has passed from the epoch to the given date
-        utc_diff = utc_offset - self.epoch[5]
+        utc_diff = utc_offset - self.epoch[6]
         mod_delta_yrs = year - self.epoch[0]
         mod_delta_mon = month - self.epoch[1] + mod_delta_yrs * 12
         mod_delta_day = (given_date - zeroday).days
         mod_delta_hrs = hour - self.epoch[3] + mod_delta_day * 24 + utc_diff
         mod_delta_min = mins - self.epoch[4] + mod_delta_hrs * 60
+        mod_delta_sec = sec - self.epoch[5] + mod_delta_min * 60
 
         # Makes iterating through like components easier.
         quintuple = zip(
-            (mins, hour, day, month, given_dow),
+            (sec, mins, hour, day, month, given_dow),
             self.numerical_tab,
             self.string_tab,
-            (mod_delta_min, mod_delta_hrs, mod_delta_day, mod_delta_mon,
+            (mod_delta_sec, mod_delta_min, mod_delta_hrs, mod_delta_day, mod_delta_mon,
                 mod_delta_day),
             FIELD_RANGES)
-
+        
+        #print quintuple
+                
         for value, valid_values, field_str, delta_t, field_type in quintuple:
             # All valid, static values for the fields are stored in sets
             if value in valid_values:
                 continue
-
+            
             # The following for loop implements the logic for context
             # sensitive and epoch sensitive constraints. break statements,
             # which are executed when a match is found, lead to a continue
@@ -239,10 +245,10 @@ class CronExpression(object):
                         break
             else:
                 # See 2010.11.15 of CHANGELOG
-                if field_type == DAYS_OF_MONTH and self.string_tab[4] != '*':
+                if field_type == DAYS_OF_MONTH and self.string_tab[5] != '*':
                     dom_matched = False
                     continue
-                elif field_type == DAYS_OF_WEEK and self.string_tab[2] != '*':
+                elif field_type == DAYS_OF_WEEK and self.string_tab[3] != '*':
                     # If we got here, then days of months validated so it does
                     # not matter that days of the week failed.
                     return dom_matched
